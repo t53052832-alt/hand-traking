@@ -1,0 +1,170 @@
+import cv2
+import mediapipe as mp
+import time
+import buttons
+import FingerConnection
+from OneEuroFilter import OneEuroFilter
+import fillpoly
+
+# --- CONSTANTS & CONFIGURATIONS ---
+WINDOW_NAME = "image"
+FRAME_WIDTH, FRAME_HEIGHT = 1280, 720
+MAX_HANDS = 2
+
+# OneEuroFilter Configuration
+FILTER_CONFIG = {
+    'freq': 120,       # Expected data frequency in Hz
+    'mincutoff': 1.0,  # Minimum cutoff frequency (low speed)
+    'beta': 0.007,     # Speed coefficient (high speed lag reduction)
+    'dcutoff': 1.0     # Cutoff frequency for the derivative
+}
+
+FINGER_IDS = {
+    "Thumb": 4,
+    "Index": 8,
+    "Middle": 12,
+    "Ring": 16,
+    "Pinky": 20,
+}
+
+# Pre-allocated filter cache
+filters = {}
+
+def get_filter(hand_idx: int, landmark_id: int, axis: str) -> OneEuroFilter:
+    """Retrieves or creates a cached OneEuroFilter for a specific coordinate."""
+    key = (hand_idx, landmark_id, axis)
+    if key not in filters:
+        filters[key] = OneEuroFilter(**FILTER_CONFIG)
+    return filters[key]
+
+def main():
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+
+    # Initialize Buttons
+    btn_y = FRAME_WIDTH - 50
+    rec = buttons.Button(0, "rec", btn_y)
+    line = buttons.Button(1, "line", btn_y)
+    line_data = buttons.Button(2, "line data", btn_y)
+    cords = buttons.Button(3, "cords", btn_y)
+    points = buttons.Button(4, "points", btn_y)
+    big_circle = buttons.Button(5, "big circle", btn_y)
+
+    points.is_active = not points.is_active
+    buttons_list = [rec, line, line_data, cords, points, big_circle]
+
+    mp_hands = mp.solutions.hands
+    cv2.namedWindow(WINDOW_NAME)
+
+    with mp_hands.Hands(
+        max_num_hands=MAX_HANDS,
+        min_detection_confidence=0.7,
+        min_tracking_confidence=0.7,
+    ) as hands:
+        
+        while True:
+            # Timestamp must be updated per frame for the 1Euro Filter to calculate velocity correctly
+            current_time = time.time()
+            
+            # Read frame without deep sleep blocking logic
+            success, img = cap.read()
+            if not success:
+                print("Failed to capture image. Retrying...")
+                # Non-blocking wait keeps the UI thread alive during camera hangs
+                if cv2.waitKey(10) & 0xFF == ord('q'):
+                    break
+                continue
+
+            # Pre-processing
+            img = cv2.flip(img, 1)
+            h, w, _ = img.shape
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            results = hands.process(rgb)
+
+            # Draw UI
+            for btn in buttons_list:
+                btn.draw(img)
+
+            all_hands_cords = []
+            num_of_hands = 0
+
+            if results.multi_hand_landmarks:
+                num_of_hands = len(results.multi_hand_landmarks)
+                
+                # Iterate through hands using enumerate to assign distinct filters per hand
+                for hand_idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                    finger_cords = {}
+                    
+                    for name, lm_id in FINGER_IDS.items():
+                        lm = hand_landmarks.landmark[lm_id]
+                         
+                        # Pass actual hand_idx so multiple hands don't shareand corrupt filter state
+                        fx = get_filter(hand_idx, lm_id, 'x')
+                        fy = get_filter(hand_idx, lm_id, 'y')
+
+                        cx = int(fx.filter(lm.x * w, timestamp=current_time))
+                        cy = int(fy.filter(lm.y * h, timestamp=current_time))
+                        finger_cords[lm_id] = (cx, cy)
+                        
+                        if points.is_active:
+                            cv2.circle(img, (cx, cy), 8, (255, 0, 255), cv2.FILLED, 1)
+                        
+                        if lm_id == 8 and hand_idx == 0:  # Index finger tip triggers UI hover
+                            for btn in buttons_list:
+                                btn.check_hover(cx, cy)
+                        
+                    all_hands_cords.append(finger_cords)                    
+
+                    # Optimize bounding box calculations (single list comprehension over landmarks)
+                    if rec.is_active or big_circle.is_active:
+                        x_cords = [lm.x * w for lm in hand_landmarks.landmark]
+                        y_cords = [lm.y * h for lm in hand_landmarks.landmark]
+                        
+                        x_min, x_max = int(min(x_cords)), int(max(x_cords))
+                        y_min, y_max = int(min(y_cords)), int(max(y_cords))
+                        
+                        if rec.is_active:
+                            cv2.rectangle(img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+
+                        if big_circle.is_active:
+                            x_diff, y_diff = x_max - x_min, y_max - y_min
+                            x_center = x_min + (x_diff // 2)
+                            y_center = y_min + (y_diff // 2)
+                            big_r = max(x_diff, y_diff) // 2
+                            cv2.circle(img, (x_center, y_center), big_r, (0, 0, 255), 2, 1)
+
+                # Render coordinate text OUTSIDE the individual hand loop to prevent over-drawing
+                if cords.is_active and all_hands_cords:
+                    y_offset = 30
+                    for name, lm_id in FINGER_IDS.items():
+                        # Draw Hand 1
+                        cv2.putText(img, f'{name}: {all_hands_cords[0][lm_id]}', 
+                                    (10, y_offset), cv2.FONT_HERSHEY_PLAIN, 1.1, (0, 0, 0), 2)
+                        # Draw Hand 2 if present
+                        if num_of_hands == 2:
+                            cv2.putText(img, f'{name}: {all_hands_cords[1][lm_id]}', 
+                                        (210, y_offset), cv2.FONT_HERSHEY_PLAIN, 1.1, (0, 0, 0), 2)
+                        y_offset += 20
+
+                # Render connections between hands
+                if num_of_hands == 2 and line.is_active:
+                    poly = fillpoly.fill_poly(0,4,(0,0,0))
+                    #poly =                                     
+
+
+            cv2.imshow(WINDOW_NAME,img)            
+
+            # Exit conditions (q key or window close)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            
+            # Ensure safe property fetching by checking if window exists
+            if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
