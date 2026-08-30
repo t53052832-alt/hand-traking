@@ -2,7 +2,7 @@
 
 A real-time AR hand-tracking application built with **MediaPipe**, **OpenCV**, and a custom **ModernGL + GLFW** GPU shader pipeline. Built as a hands-on project to learn Python, OpenGL, and GLSL from the ground up.
 
-Repo: https://github.com/t53052832-alt/hand-traking
+Repo: https://github.com/t53052832-alt/Nyxel
 
 ---
 
