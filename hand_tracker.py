@@ -9,9 +9,10 @@ import numpy as np
 
 class HandTracker:
 
-    def __init__(self, width, height):
+    def __init__(self, width, height,all_effect_names):
         self.mp_hands = mp.solutions.hands
         self.mp_draw = mp.solutions.drawing_utils
+        self.all_effect_names = all_effect_names
 
         self.hands = self.mp_hands.Hands(
             max_num_hands = 2,
@@ -22,31 +23,58 @@ class HandTracker:
         dis = 40
         #----------normal----------
         self.more_buttons =     buttons.Button(0,"more buttons",(1280-dis),2)
-        self.line =             buttons.Button(1,"line",(1280-dis),2)
+        self.poly =             buttons.Button(1,"poly",(1280-dis),2)
         self.line_data =        buttons.Button(2,"line data",(1280-dis),2)
         self.cords =            buttons.Button(3,"cords",(1280-dis),2)
-        self.points =           buttons.Button(4,"points",(1280-dis),2)
-    
+        self.points =           buttons.Button(2,"points",(1280-dis),2)
+
         dis = 180
         #----------more------------
+        self.set_effect =       buttons.Button(1,"effect",(dis),len(all_effect_names))        
         self.set_color =        buttons.Button(0,"color",(dis),3)
-        self.rectalgel =        buttons.Button(1,"rec",(dis),2)
-        self.big_circel =       buttons.Button(2,"big circle",(dis),2)
-        self.small_circel =     buttons.Button(3,"small circle",(dis),2)
-        self.circel_on_finger = buttons.Button(4,"circle on finger",(dis),2)
+        self.rectalgel =        buttons.Button(2,"rec",(dis),2)
+        self.big_circel =       buttons.Button(3,"big circle",(dis),2)
+        self.small_circel =     buttons.Button(4,"small circle",(dis),2)
+        self.circel_on_finger = buttons.Button(5,"circle on finger",(dis),2)
 
-        self.buttons_list = [self.more_buttons, self.line, self.line_data, self.cords, self.points]
-        self.more_buttons_list_multistates = [self.set_color]    
-        self.more_buttons_list_doule_state = [self.rectalgel,self.big_circel,self.small_circel,self.circel_on_finger]
+        # ---- flip True/False here to turn buttons on/off, nothing else to touch ----
+        normal_button_configs = [
+            (self.more_buttons, True),
+            (self.poly,         True),
+            (self.line_data,    False),
+            (self.cords,        False),
+            (self.points,       True),
+        ]
+
+        multistate_button_configs = [
+            (self.set_color,  False),
+            (self.set_effect, True),
+        ]
+
+        double_state_button_configs = [
+            (self.rectalgel,        True),
+            (self.big_circel,       True),
+            (self.small_circel,     True),
+            (self.circel_on_finger, True),
+        ]
+
+        self.buttons_list = [btn for btn, enabled in normal_button_configs if enabled]
+        self.more_buttons_list_multistates = [btn for btn, enabled in multistate_button_configs if enabled]
+        self.more_buttons_list_doule_state = [btn for btn, enabled in double_state_button_configs if enabled]
         self.all_more_buttons = self.more_buttons_list_multistates + self.more_buttons_list_doule_state
+
+        self.draw_buttons = True
+        self.draw_only_multistates = True
 
         self.y_offset = 30
         self.num_of_hands = 0
         self.filter_is_on = False
+        self.current_poly_points = None       
+
         self.points.is_active = not self.points.is_active
-        self.line.is_active = not self.line.is_active
-        self.current_poly_points = None
-        self.draw_buttons = False
+        self.poly.is_active = not self.poly.is_active
+        
+        self.show_main_hand = True
 
         self.WIDTH = width
         self.HEIGHT = height
@@ -66,11 +94,11 @@ class HandTracker:
             'dcutoff': 1.0     # Cutoff frequency for the derivative
         }
 
+        
         self.filters = {}
         self.filter_x = OneEuroFilter(**self.config)
 
-        self.current_time = time.time()
-        
+        self.current_time = time.time()        
 
     def track_and_draw(self, frame, hud_canvas):        
         canvas = hud_canvas             
@@ -83,13 +111,17 @@ class HandTracker:
                 btn.draw(canvas)
 
             if self.more_buttons.is_active:
-                for btn in self.all_more_buttons:
-                    btn.draw(canvas)    
+                if self.draw_only_multistates:
+                    for btn in self.more_buttons_list_multistates:
+                        btn.draw(canvas)    
+                else:
+                    for btn in self.all_more_buttons:
+                        btn.draw(canvas)  
 
         if results.multi_hand_landmarks:
             num_of_hands = len(results.multi_hand_landmarks)
             all_hands_cords = []
-            for hand_landmarks in results.multi_hand_landmarks:   
+            for self.hand_index, hand_landmarks in enumerate(results.multi_hand_landmarks):
                 
                 finger_cords = {}
                 
@@ -111,7 +143,7 @@ class HandTracker:
                     if self.points.is_active:                            
                         cv2.circle(canvas, (cx, cy),10, (255, 0, 255,255), cv2.FILLED,1)
 
-                    if id == 8:  # index finger tip
+                    if self.hand_index == 0 and id == 8:  # index finger tip
                         if self.more_buttons.is_active:
                             for btn in self.buttons_list + self.all_more_buttons:
                                 btn.check_hover(cx, cy)
@@ -127,13 +159,13 @@ class HandTracker:
                 if self.cords.is_active:                        
                     self.show_cords(canvas,all_hands_cords)
             
-                if self.line.is_active and 0 > 1:                        
+                if self.poly.is_active and 0 > 1:                        
                     for i in range(num_of_hands):
                         if i < len(all_hands_cords):
                             line1 = FingerConnection.FingerConnection(0, i, 4, i, (0, 255, 0, 255), 2)   
                             line1.draw_connection(canvas,all_hands_cords, self.line_data.is_active)                                
-                
-            if num_of_hands == 2 and self.line.is_active:                
+               
+            if num_of_hands == 2 and self.poly.is_active:                
                 self.fill_poly([4,8],all_hands_cords)                      
 
     def get_filter(self,hand_idx, landmark_id, axis):
@@ -150,6 +182,9 @@ class HandTracker:
         x_diff, y_diff = abs(x_max - x_min), abs(y_max - y_min)
         x_center_of_hand, y_center_of_hand =  int(abs(x_max-x_min)/2)+x_min , int(abs(y_max - y_min)/2)+y_min                                   
         current_color = self.set_color.color_options[self.set_color.state_index]
+
+        if self.show_main_hand and self.hand_index == 0:            
+            cv2.circle(canvas, (x_center_of_hand, y_center_of_hand),10, (255, 255, 255,255), cv2.FILLED,1)            
 
         if self.rectalgel.is_active:                          
             cv2.rectangle(canvas, (x_min, y_min), (x_max, y_max),current_color,2)
@@ -209,3 +244,7 @@ class HandTracker:
             points.append(all_hands_cords[1][finger_id])
             
         return points
+
+    @property
+    def current_effect(self):
+        return self.all_effect_names[self.set_effect.state_index]

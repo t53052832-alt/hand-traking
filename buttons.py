@@ -15,7 +15,7 @@ class Button:
         
         self.num_states = states_n        
         self.state_index = 0
-        self.color_options = [(255,0,0,255),(0,255,0,255),(0,0,255,255)] #R G B
+        self.color_options = [(255,0,0,255),(0,255,0,255),(0,0,255,255),(255,255,0,255),(255,0,255,255),(0,255,255,255)] #R G B
 
         if self.num_states < 3:
             self.is_active = False

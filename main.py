@@ -6,13 +6,13 @@ import renderer
 import hand_tracker
 
 WIDTH, HEIGHT= 1280, 720
-
+all_effect_names = ["thermal","distort","sobel","invert"]
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
 
-app_renderer = renderer.Renderer(WIDTH,HEIGHT,'main')
-hand = hand_tracker.HandTracker(WIDTH,HEIGHT)
+app_renderer = renderer.Renderer(WIDTH,HEIGHT,'main',all_effect_names)
+hand =  hand_tracker.HandTracker(WIDTH,HEIGHT,all_effect_names)
 while not glfw.window_should_close(app_renderer.window):
 
     succsess,raw_frame = cap.read()    
@@ -24,7 +24,8 @@ while not glfw.window_should_close(app_renderer.window):
 
     hud_canvas = cv2.flip(hud_canvas,0)
 
-    app_renderer.render(gpu_frame,hud_canvas,hand.current_poly_points)
+    app_renderer.render(gpu_frame,hud_canvas,hand.current_poly_points,hand.current_effect)
+    #app_renderer.draw_stacked_poly(hand.current_poly_points,["thermal","invert"])
 
     app_renderer.update_screen()
 
