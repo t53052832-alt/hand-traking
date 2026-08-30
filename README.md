@@ -68,11 +68,7 @@ A **true multi-effect stacking system** (`draw_stacked_poly`) also exists in `re
 **Requirements (strict versions — newer ones break MediaPipe on Windows):**
 
 ```
-mediapipe==0.10.21
-opencv-python==4.10.0.84
-numpy<2
-moderngl
-glfw
+pip install -r requirements.txt
 ```
 
 Why pinned: `mediapipe` silently upgraded past `0.10.21` during development and removed the legacy `solutions.hands` API entirely in `1.0.1` — every effect and landmark call in `hand_tracker.py` depends on that legacy API. `opencv-python` 5.x requires `numpy>=2`, which conflicts directly with MediaPipe's own numpy requirement, so `numpy<2` is non-negotiable alongside these two.
