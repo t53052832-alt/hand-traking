@@ -4,8 +4,8 @@ import time
 import buttons
 import FingerConnection
 from OneEuroFilter import OneEuroFilter
-import fillpoly
-
+import numpy as np
+ 
 
 class HandTracker:
 
@@ -15,7 +15,7 @@ class HandTracker:
 
         self.hands = self.mp_hands.Hands(
             max_num_hands = 2,
-            min_detection_confidence = 0.7,
+            min_detection_confidence = 0.1,
             min_tracking_confidence = 0.99,
         )
 
@@ -44,6 +44,9 @@ class HandTracker:
         self.num_of_hands = 0
         self.filter_is_on = False
         self.points.is_active = not self.points.is_active
+        self.line.is_active = not self.line.is_active
+        self.current_poly_points = None
+        self.draw_buttons = False
 
         self.WIDTH = width
         self.HEIGHT = height
@@ -67,18 +70,21 @@ class HandTracker:
         self.filter_x = OneEuroFilter(**self.config)
 
         self.current_time = time.time()
+        
 
-    def track_and_draw(self, frame, hud_canvas):
-        canvas = cv2.flip(hud_canvas,0)                 
-        rgba = cv2.cvtColor(canvas,cv2.COLOR_BGR2RGBA)
+    def track_and_draw(self, frame, hud_canvas):        
+        canvas = hud_canvas             
+
+        self.current_poly_points = None            
         results = self.hands.process(frame)                   
 
-        for btn in self.buttons_list:
-            btn.draw(canvas)
+        if self.draw_buttons:
+            for btn in self.buttons_list:
+                btn.draw(canvas)
 
-        if self.more_buttons.is_active:
-            for btn in self.all_more_buttons:
-                btn.draw(canvas)    
+            if self.more_buttons.is_active:
+                for btn in self.all_more_buttons:
+                    btn.draw(canvas)    
 
         if results.multi_hand_landmarks:
             num_of_hands = len(results.multi_hand_landmarks)
@@ -88,8 +94,7 @@ class HandTracker:
                 finger_cords = {}
                 
                                     
-                for id in self.FINGER_IDS.items():
-                    
+                for name,id in self.FINGER_IDS.items():                    
                     lm = hand_landmarks.landmark[id]                        
 
                     if self.filter_is_on:
@@ -97,9 +102,9 @@ class HandTracker:
                         fy = self.get_filter(0, id, 'y')
 
                         cx = int(fx.filter(lm.x * self.WIDTH, timestamp=self.current_time))
-                        cy = int(fy.filter(lm.y * self.HEIGTH, timestamp=self.current_time))
+                        cy = int(fy.filter(lm.y * self.HEIGHT, timestamp=self.current_time))
                     else:
-                        cx,cy = int(lm.x * self.WIDTH),int(lm.y * self.HEIGTH)
+                        cx,cy = int(lm.x * self.WIDTH),int(lm.y * self.HEIGHT)
     
                     finger_cords[id] = (cx, cy)
                 
@@ -117,10 +122,10 @@ class HandTracker:
                 all_hands_cords.append(finger_cords)                                  
             
                 if  self.more_buttons.is_active and any(b.is_active for b in self.more_buttons_list_doule_state):
-                    self.extra_buttons()                                                  
+                    self.extra_buttons(canvas,hand_landmarks,all_hands_cords)                                                  
 
                 if self.cords.is_active:                        
-                    self.show_cords()
+                    self.show_cords(canvas,all_hands_cords)
             
                 if self.line.is_active and 0 > 1:                        
                     for i in range(num_of_hands):
@@ -128,15 +133,8 @@ class HandTracker:
                             line1 = FingerConnection.FingerConnection(0, i, 4, i, (0, 255, 0, 255), 2)   
                             line1.draw_connection(canvas,all_hands_cords, self.line_data.is_active)                                
                 
-            if num_of_hands == 2 and self.line.is_active:
-                #for n ,i in FINGER_IDS.items():
-                    #line1 = FingerConnection.FingerConnection(i,0,i,1,(0, 255, 0), 2)  
-                    #line1.draw_connection(img,all_hands_cords,line_data.is_active)
-                poly = fillpoly.fill_poly(8,4,(0,255,0,255))
-                poly.poly(canvas,all_hands_cords)
-        
-        #cv2.imshow("image", canvas)                         
-        
+            if num_of_hands == 2 and self.line.is_active:                
+                self.fill_poly([4,8],all_hands_cords)                      
 
     def get_filter(self,hand_idx, landmark_id, axis):
         key = (hand_idx, landmark_id, axis)
@@ -148,7 +146,7 @@ class HandTracker:
         x_cords = [lm.x for lm in hand_landmarks.landmark]
         y_cords = [lm.y for lm in hand_landmarks.landmark]
         x_min, x_max = int(min(x_cords)*self.WIDTH), int(max(x_cords)*self.WIDTH)
-        y_min, y_max = int(min(y_cords)*self.HEIGTH), int(max(y_cords)*self.HEIGTH)       
+        y_min, y_max = int(min(y_cords)*self.HEIGHT), int(max(y_cords)*self.HEIGHT)       
         x_diff, y_diff = abs(x_max - x_min), abs(y_max - y_min)
         x_center_of_hand, y_center_of_hand =  int(abs(x_max-x_min)/2)+x_min , int(abs(y_max - y_min)/2)+y_min                                   
         current_color = self.set_color.color_options[self.set_color.state_index]
@@ -158,7 +156,7 @@ class HandTracker:
 
         if self.big_circel.is_active:                                                                          
             big_r = int(max(x_diff, y_diff)/2)                            
-            cv2.circle(self.img,(x_center_of_hand, y_center_of_hand),big_r,current_color,2)
+            cv2.circle(canvas,(x_center_of_hand, y_center_of_hand),big_r,current_color,2)
                                     
         if self.small_circel.is_active:
             small_r = int(min(x_diff, y_diff)/2)
@@ -174,11 +172,40 @@ class HandTracker:
                 distance_line_radios.draw_connection(canvas,all_hands_cords,self.line_data.is_active)
                 cv2.circle(canvas,all_hands_cords[0][finger_id],distance,current_color)
 
-    def show_cords(self,canvas,hand_landmarks, all_hands_cords):
+    def show_cords(self,canvas,all_hands_cords):
         x_offset = 200                    
         y_offset = 30
         for name, id in self.FINGER_IDS.items():                                                        
-            cv2.putText(canvas, f'{name}: {all_hands_cords[0][id]}', (10, y_offset),cv2.FONT_HERSHEY_PLAIN, 1.1, (0, 0, 0, 255), 2)
+            cv2.putText(canvas, f'{name}: {all_hands_cords[0][id]}', (10, y_offset),cv2.FONT_HERSHEY_PLAIN, 1.1, (0, 0, 0, 255), 2)            
             if len(all_hands_cords) == 2:
                 cv2.putText(canvas, f'{name}: {all_hands_cords[1][id]}', (x_offset+10, y_offset),cv2.FONT_HERSHEY_PLAIN, 1.1, (0, 0, 0, 255), 2)
             y_offset += 20     
+
+    def fill_poly(self,fingers:list,all_hands_cords):
+        if len(all_hands_cords) > 1:
+            points = self.make_arr_for_n_fingers(fingers,all_hands_cords)
+
+            for i in range(len(points)):
+                points[i] = self.convert(points[i])
+
+            self.current_poly_points = points
+        else:
+            self.current_poly_points = None
+
+    def convert(self,pt):
+        x = [2*(pt[0]/self.WIDTH)-1] 
+        y = [1-(2*(pt[1]/self.HEIGHT))] 
+        return [x,y]
+
+    def make_arr_for_n_fingers(self,fingers,all_hands_cords):        
+        points = []
+        # 1. First hand (Hand 0) - Normal order
+        for finger_id in fingers:
+            points.append(all_hands_cords[0][finger_id])
+            
+        # 2. Second hand (Hand 1) - REVERSE order!
+        # reversed(fingers) makes it read the list backwards.
+        for finger_id in reversed(fingers):
+            points.append(all_hands_cords[1][finger_id])
+            
+        return points

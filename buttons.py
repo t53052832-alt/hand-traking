@@ -15,7 +15,7 @@ class Button:
         
         self.num_states = states_n        
         self.state_index = 0
-        self.color_options = [(0,255,0,255),(255,0,0,255),(0,0,255,255)]
+        self.color_options = [(255,0,0,255),(0,255,0,255),(0,0,255,255)] #R G B
 
         if self.num_states < 3:
             self.is_active = False
@@ -33,11 +33,11 @@ class Button:
     def color(self) -> np.ndarray: 
         if self.num_states < 3:
             if self.is_active :
-                return np.array((0, 255, 0, 255), dtype=np.uint8)
+                return self.color_options[1]
             else:
-                return np.array((0, 0, 255, 255), dtype=np.uint8)
+                return self.color_options[0]
         else:
-            return np.array(self.current_color, dtype=np.uint8)
+            return self.color_options[self.state_index]
 
     def toggle_state(self):
         self.is_active = not self.is_active
@@ -50,7 +50,7 @@ class Button:
 
     def draw(self, canvas):
         # Uses the dynamic @property self.color
-        cv2.rectangle(canvas, (self.x1, self.y1), (self.x2, self.y2), (0, 0, 255, 255), cv2.FILLED)
+        cv2.rectangle(canvas, (self.x1, self.y1), (self.x2, self.y2),self.color, cv2.FILLED)
         cv2.putText(canvas, self.label, (self.tx, self.ty), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255, 255), 2)
 
     def check_hover(self, cx: int, cy: int):
